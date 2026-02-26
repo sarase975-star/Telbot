@@ -1,69 +1,66 @@
 import os
-import logging
-from openai import OpenAI
+import requests
 from telegram import Update
-from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, filters
+from telegram.ext import ApplicationBuilder, MessageHandler, filters, ContextTypes
 
-# ------------------------
-# Setup logging
-# ------------------------
-logging.basicConfig(
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    level=logging.INFO
-)
+# Load API keys from environment
+HF_KEY = os.environ.get("HF_API_KEY")
+TOGETHER_KEY = os.environ.get("TOGETHER_API_KEY")
+COHERE_KEY = os.environ.get("COHERE_API_KEY")
 
-# ------------------------
-# Load environment variables
-# ------------------------
-TELEGRAM_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
-OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
+# ---- Functions to call free LLMs ----
 
-if not TELEGRAM_TOKEN:
-    raise ValueError("TELEGRAM_BOT_TOKEN is not set")
+async def call_huggingface(prompt):
+    headers = {"Authorization": f"Bearer {HF_KEY}"}
+    data = {"inputs": prompt}
+    try:
+        r = requests.post("https://api-inference.huggingface.co/models/mistral-7b", headers=headers, json=data)
+        r.raise_for_status()
+        return r.json()[0]["generated_text"]
+    except Exception as e:
+        return f"HuggingFace error: {e}"
 
-if not OPENAI_API_KEY:
-    raise ValueError("OPENAI_API_KEY is not set")
+async def call_together(prompt):
+    headers = {"Authorization": f"Bearer {TOGETHER_KEY}"}
+    data = {"input": prompt}
+    try:
+        r = requests.post("https://api.together.xyz/inference/gpt", headers=headers, json=data)
+        r.raise_for_status()
+        return r.json().get("output", "Together AI did not respond.")
+    except Exception as e:
+        return f"Together AI error: {e}"
 
-# Create OpenAI client
-client = OpenAI()
+async def call_cohere(prompt):
+    headers = {"Authorization": f"Bearer {COHERE_KEY}"}
+    data = {"prompt": prompt, "max_tokens": 100}
+    try:
+        r = requests.post("https://api.cohere.com/v1/generate", headers=headers, json=data)
+        r.raise_for_status()
+        return r.json()["generations"][0]["text"]
+    except Exception as e:
+        return f"Cohere error: {e}"
 
-# ------------------------
-# Telegram Commands
-# ------------------------
-
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Hello! Send me a message and I'll ask OpenAI 🤖")
+# ---- Telegram message handler ----
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_message = update.message.text
+    text = update.message.text.lower()
 
-    try:
-        response = client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[
-                {"role": "system", "content": "You are a helpful assistant."},
-                {"role": "user", "content": user_message}
-            ],
-        )
+    # Simple intent detection
+    if "french" in text:
+        reply = await call_huggingface(text)
+    elif "business" in text:
+        reply = await call_together(text)
+    else:
+        reply = await call_cohere(text)
 
-        reply = response.choices[0].message.content
-        await update.message.reply_text(reply)
+    await update.message.reply_text(reply)
 
-    except Exception as e:
-        logging.error(f"Error: {e}")
-        await update.message.reply_text("Something went wrong.")
-
-# ------------------------
-# Main Function
-# ------------------------
+# ---- Main bot setup ----
 
 def main():
+    TELEGRAM_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
-
-    app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-
-    print("Bot is running...")
     app.run_polling()
 
 if __name__ == "__main__":
