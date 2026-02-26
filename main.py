@@ -2,12 +2,14 @@ import os
 import httpx
 from telegram import Update
 from telegram.ext import ApplicationBuilder, MessageHandler, filters, ContextTypes
+from openai import OpenAI
 
 # ===============================
 # ENV VARIABLES
 # ===============================
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-HF_KEY = os.getenv("HF_API_KEY")
+HF_KEY = os.environ["HF_TOKEN"]
+client = OpenAI(base_url="https://router.huggingface.co/v1", api_key=HF_KEY)
 TOGETHER_KEY = os.getenv("TOGETHER_API_KEY")
 COHERE_KEY = os.getenv("COHERE_API_KEY")
 
@@ -16,22 +18,11 @@ COHERE_KEY = os.getenv("COHERE_API_KEY")
 # ===============================
 
 async def call_huggingface(prompt: str) -> str:
-    url = "https://router.huggingface.co/v1"
-    headers = {"Authorization": f"Bearer {HF_KEY}"}
-    payload = {"inputs": prompt}
-
-    async with httpx.AsyncClient(timeout=60) as client:
-        r = await client.post(url, headers=headers, json=payload)
-
-    try:
-        data = r.json()
-    except Exception:
-        return f"HuggingFace returned non-JSON:\n{r.text}"
-
-    if isinstance(data, list):
-        return data[0].get("generated_text", "No text returned from HuggingFace.")
-
-    return str(data)
+    completion = client.chat.completions.create(
+        model="moonshotai/Kimi-K2-Instruct-0905:groq",
+        messages=[{"role": "user", "content": prompt}],
+    )
+    return completion.choices[0].message["content"]
 
 
 async def call_together(prompt: str) -> str:
