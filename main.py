@@ -3,12 +3,18 @@ import httpx
 from telegram import Update
 from telegram.ext import ApplicationBuilder, MessageHandler, filters, ContextTypes
 
+# ===============================
+# ENV VARIABLES
+# ===============================
+
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 HF_KEY = os.getenv("HF_API_KEY")
 TOGETHER_KEY = os.getenv("TOGETHER_API_KEY")
 COHERE_KEY = os.getenv("COHERE_API_KEY")
 
-# ---------- LLM CALLERS ----------
+# ===============================
+# LLM CALL FUNCTIONS
+# ===============================
 
 async def call_huggingface(prompt):
     url = "https://api-inference.huggingface.co/models/mistralai/Mistral-7B-Instruct-v0.2"
@@ -17,10 +23,15 @@ async def call_huggingface(prompt):
 
     async with httpx.AsyncClient(timeout=60) as client:
         r = await client.post(url, headers=headers, json=payload)
+
+    try:
         data = r.json()
+    except:
+        return f"HuggingFace returned non-JSON:\n{r.text}"
 
     if isinstance(data, list):
-        return data[0]["generated_text"]
+        return data[0].get("generated_text", "No text returned from HuggingFace.")
+
     return str(data)
 
 
@@ -39,9 +50,12 @@ async def call_together(prompt):
 
     async with httpx.AsyncClient(timeout=60) as client:
         r = await client.post(url, headers=headers, json=payload)
-        data = r.json()
 
-    return data["choices"][0]["message"]["content"]
+    try:
+        data = r.json()
+        return data["choices"][0]["message"]["content"]
+    except:
+        return f"Together API error:\n{r.text}"
 
 
 async def call_cohere(prompt):
@@ -58,11 +72,17 @@ async def call_cohere(prompt):
 
     async with httpx.AsyncClient(timeout=60) as client:
         r = await client.post(url, headers=headers, json=payload)
+
+    try:
         data = r.json()
+        return data["message"]["content"][0]["text"]
+    except:
+        return f"Cohere API error:\n{r.text}"
 
-    return data["message"]["content"][0]["text"]
 
-# ---------- SIMPLE AGENT ROUTER ----------
+# ===============================
+# AGENT ROUTER
+# ===============================
 
 def detect_agent(text):
     text = text.lower()
@@ -75,7 +95,10 @@ def detect_agent(text):
 
     return "general"
 
-# ---------- TELEGRAM HANDLER ----------
+
+# ===============================
+# TELEGRAM HANDLER
+# ===============================
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_text = update.message.text
@@ -92,14 +115,28 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply = await call_cohere(user_text)
 
     except Exception as e:
-        reply = f"Error: {str(e)}"
+        reply = f"Unexpected error:\n{str(e)}"
 
     await update.message.reply_text(reply[:4000])
 
-# ---------- MAIN ----------
+
+# ===============================
+# MAIN
+# ===============================
 
 def main():
+    if not TELEGRAM_TOKEN:
+        raise ValueError("Missing TELEGRAM_BOT_TOKEN")
+
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+
+    print("Bot is running...")
+    app.run_polling()
+
+
+if __name__ == "__main__":
+    main()    app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     app.run_polling()
 
