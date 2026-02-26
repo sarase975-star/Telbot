@@ -16,7 +16,7 @@ COHERE_KEY = os.getenv("COHERE_API_KEY")
 # ===============================
 
 async def call_huggingface(prompt: str) -> str:
-    url = "https://api-inference.huggingface.co/models/mistralai/Mistral-7B-Instruct-v0.2"
+    url = "https://router.huggingface.co/models/mistralai/Mistral-7B-Instruct-v0.2"
     headers = {"Authorization": f"Bearer {HF_KEY}"}
     payload = {"inputs": prompt}
 
